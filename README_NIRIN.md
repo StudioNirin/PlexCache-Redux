@@ -1,12 +1,7 @@
-PlexCache - Refactored Version
-A refactored version of the PlexCache script with improved architecture, maintainability, and testability.
+# PlexCache - Updated 11/2025
+An updated version of the "PlexCache-Refactored" script with various bugfixes and improvements.
 
-Overview
-This refactored version maintains all the original functionality while providing:
+## Changelog
 
-Modular Architecture: Code is organized into logical modules with clear separation of concerns
-Better Error Handling: Proper exception handling without using exit() calls
-Type Hints: Full type annotations for better code documentation and IDE support
-Testability: Components can be easily unit tested
-Configuration Management: Centralized configuration handling
-Logging: Improved logging with proper handlers and rotation
+- **11/25 - Handling of script_folder link**: Old version had a hardcoded link to the script folder instead of using the user-defined setting. 
+
