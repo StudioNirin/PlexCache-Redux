@@ -73,6 +73,11 @@ class CacheConfig:
     watched_cache_expiry: int = 48
     watched_move: bool = True
 
+    # Add these new fields
+    remote_watchlist_toggle: bool = False
+    remote_watchlist_rss_url: str = ""
+
+
 
 @dataclass
 class PerformanceConfig:
@@ -167,6 +172,11 @@ class ConfigManager:
         self.cache.watchlist_cache_expiry = self.settings_data['watchlist_cache_expiry']
         self.cache.watched_cache_expiry = self.settings_data['watched_cache_expiry']
         self.cache.watched_move = self.settings_data['watched_move']
+
+        # Load new remote watchlist settings
+        self.cache.remote_watchlist_toggle = self.settings_data.get('remote_watchlist_toggle', False)
+        self.cache.remote_watchlist_rss_url = self.settings_data.get('remote_watchlist_rss_url', "")
+
     
     def _load_path_config(self) -> None:
         """Load path-related configuration."""
