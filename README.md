@@ -49,5 +49,5 @@ This script comes without any warranties, guarantees, or magic powers. By using 
 It seems we all owe a debt of thanks to someone called brimur[^1] for providing the script that served as the foundation and inspiration for this project. That was long before my time on it though, the first iteration I saw was by bexem[^2], who also has my thanks. But the biggest contributor to this continuation of the project was by bbergle[^3], who put in all the work on refactoring and cleaning up all the code into bite-sized chunks that were understandable to a novice like myself. All I did then was go through it all and try and make the wierd janky Plex API actually kinda work, for what I needed it to do anyway!
 
 [^1]: [brimur/preCachePlexOnDeckEpiosodes.py](https://gist.github.com/brimur/95277e75ca399d5d52b61e6aa192d1cd)
-[^2]: [https://github.com/bexem/PlexCache]
-[^3]: [https://github.com/BBergle/PlexCache]
+[^2]: https://github.com/bexem/PlexCache
+[^3]: https://github.com/BBergle/PlexCache
