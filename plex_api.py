@@ -6,6 +6,7 @@ Handles Plex server connections and media fetching operations.
 import json
 import logging
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -15,6 +16,7 @@ from plexapi.server import PlexServer
 from plexapi.video import Episode, Movie
 from plexapi.myplex import MyPlexAccount
 from plexapi.exceptions import NotFound, BadRequest
+import requests
 
 
 class PlexManager:
@@ -46,7 +48,7 @@ class PlexManager:
             try:
                 return username, PlexServer(self.plex_url, user.get_token(self.plex.machineIdentifier))
             except Exception as e:
-                logging.error(f"Error: Failed to Fetch {username} onDeck media. Error: {e}")
+                logging.error(f"Error: Failed to fetch {username} onDeck media. Error: {e}")
                 return None, None
         else:
             username = self.plex.myPlexAccount().title
@@ -62,34 +64,55 @@ class PlexManager:
         return self.plex.sessions()
     
     def get_on_deck_media(self, valid_sections: List[int], days_to_monitor: int, 
-                         number_episodes: int, users_toggle: bool, skip_ondeck: List[str]) -> List[str]:
-        """Get onDeck media files."""
+                        number_episodes: int, users_toggle: bool, skip_ondeck: List[str]) -> List[str]:
+        """Get OnDeck media files, skipping users with no token to prevent 401 errors."""
         on_deck_files = []
-        
-        users_to_fetch = [None]  # Start with main user (None)
-        if users_toggle:
-            users_to_fetch += self.plex.myPlexAccount().users()
-            # Filter out the users present in skip_ondeck
-            users_to_fetch = [user for user in users_to_fetch 
-                            if (user is None) or (user.get_token(self.plex.machineIdentifier) not in skip_ondeck)]
 
+        # Build list of users to fetch
+        users_to_fetch = [None]  # Always include main local account
+        if users_toggle:
+            for user in self.plex.myPlexAccount().users():
+                try:
+                    token = user.get_token(self.plex.machineIdentifier)
+                    if not token:
+                        logging.info(f"Skipping {user.title} for OnDeck — no token available")
+                        continue
+                    if token in skip_ondeck:
+                        logging.info(f"Skipping {user.title} for OnDeck — token in skip list")
+                        continue
+                    users_to_fetch.append(user)
+                except Exception as e:
+                    logging.warning(f"Could not get token for {user.title}; skipping. Error: {e}")
+
+        logging.info(f"Fetching OnDeck media for {len(users_to_fetch)} users")
+
+        # Fetch concurrently
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(self._fetch_user_on_deck_media, valid_sections, days_to_monitor, 
-                                     number_episodes, user) for user in users_to_fetch}
+            futures = {
+                executor.submit(
+                    self._fetch_user_on_deck_media, 
+                    valid_sections, days_to_monitor, number_episodes, user
+                )
+                for user in users_to_fetch
+            }
+
             for future in as_completed(futures):
                 try:
                     on_deck_files.extend(future.result())
                 except Exception as e:
-                    logging.error(f"An error occurred while fetching onDeck media for a user: {e}")
-        
+                    logging.error(f"An error occurred while fetching OnDeck media for a user: {e}")
+
+        logging.info(f"Found {len(on_deck_files)} OnDeck items")
         return on_deck_files
+
     
     def _fetch_user_on_deck_media(self, valid_sections: List[int], days_to_monitor: int, 
-                                 number_episodes: int, user=None) -> List[str]:
-        """Fetch onDeck media for a specific user."""
+                                number_episodes: int, user=None) -> List[str]:
+        """Fetch onDeck media for a specific user, skipping users with no token."""
         try:
             username, plex_instance = self.get_plex_instance(user)
             if not plex_instance:
+                logging.info(f"Skipping OnDeck fetch for {username} — no Plex instance available (likely no token).")
                 return []
 
             logging.info(f"Fetching {username}'s onDeck media...")
@@ -108,11 +131,13 @@ class PlexManager:
                             self._process_episode_ondeck(video, number_episodes, on_deck_files)
                         elif isinstance(video, Movie):
                             self._process_movie_ondeck(video, on_deck_files)
+                        else:
+                            logging.warning(f"Skipping OnDeck item '{video.title}' — unknown type {type(video)}")
 
             return on_deck_files
 
         except Exception as e:
-            logging.error(f"An error occurred while fetching onDeck media: {e}")
+            logging.error(f"An error occurred while fetching onDeck media for {username}: {e}")
             return []
     
     def _process_episode_ondeck(self, video: Episode, number_episodes: int, on_deck_files: List[str]) -> None:
@@ -150,32 +175,35 @@ class PlexManager:
             if len(next_episodes) == number_episodes:
                 break
         return next_episodes
-    
+
+    def clean_rss_title(self, title: str) -> str:
+        """Remove trailing year in parentheses from a title, e.g. 'Movie (2023)' -> 'Movie'."""
+        import re
+        return re.sub(r"\s\(\d{4}\)$", "", title)
+
+
     def get_watchlist_media(self, valid_sections: List[int], watchlist_episodes: int, 
-                           users_toggle: bool, skip_watchlist: List[str]) -> Generator[str, None, None]:
-        """Get watchlist media files."""
-        def get_watchlist(token: str, user=None, retries: int = 0) -> List:
-            """Retrieve the watchlist for the specified user's token."""
-            account = MyPlexAccount(token=token)
+                            users_toggle: bool, skip_watchlist: List[str], rss_url: Optional[str] = None) -> Generator[str, None, None]:
+        """Get watchlist media files, optionally via RSS, with proper user filtering."""
+
+        def fetch_rss_titles(url: str) -> List[Tuple[str, str]]:
+            """Fetch titles and categories from a Plex RSS feed."""
             try:
-                if user:
-                    account = account.switchHomeUser(f'{user.title}')
-                watchlist = account.watchlist(filter='released')
-                logging.debug(f"Found {len(watchlist)} items in watchlist for user {user.title if user else 'main'}")
-                return watchlist
-            except (BadRequest, NotFound) as e:
-                if "429" in str(e) and retries < self.retry_limit:
-                    logging.warning(f"Rate limit exceeded. Retrying {retries + 1}/{self.retry_limit}. Sleeping for {self.delay} seconds...")
-                    time.sleep(self.delay)
-                    return get_watchlist(token, user, retries + 1)
-                elif isinstance(e, NotFound):
-                    logging.warning(f"Failed to switch to user {user.title if user else 'Unknown'}. Skipping...")
-                    return []
-                else:
-                    raise e
+                resp = requests.get(url, timeout=10)
+                resp.raise_for_status()
+                root = ET.fromstring(resp.text)
+                items = []
+                for item in root.findall("channel/item"):
+                    title = item.find("title").text
+                    category_elem = item.find("category")
+                    category = category_elem.text if category_elem is not None else ""
+                    items.append((title, category))
+                return items
+            except Exception as e:
+                logging.error(f"Failed to fetch or parse RSS feed {url}: {e}")
+                return []
 
         def process_show(file, watchlist_episodes: int) -> Generator[str, None, None]:
-            """Process episodes of a TV show file up to a specified number."""
             episodes = file.episodes()
             logging.debug(f"Processing show {file.title} with {len(episodes)} episodes")
             for episode in episodes[:watchlist_episodes]:
@@ -184,49 +212,118 @@ class PlexManager:
                         yield episode.media[0].parts[0].file
 
         def process_movie(file) -> Generator[str, None, None]:
-            """Process a movie file."""
-            # Remove the isPlayed check - move to cache regardless of watch status
             if len(file.media) > 0 and len(file.media[0].parts) > 0:
-                file_path = file.media[0].parts[0].file
-                yield file_path
+                yield file.media[0].parts[0].file
 
-        def fetch_user_watchlist(user) -> List[str]:
-            # Delay 2 seconds before querying this user to reduce rate limiting
-            time.sleep(2)
-            
+
+        def fetch_user_watchlist(user) -> Generator[str, None, None]:
+            """Fetch watchlist media for a user, optionally via RSS, yielding file paths."""
+
+            time.sleep(1)  # slight delay for rate-limit protection
             current_username = self.plex.myPlexAccount().title if user is None else user.title
+            logging.info(f"Fetching watchlist media for {current_username}")
+
+            # Build list of valid sections for filtering
             available_sections = [section.key for section in self.plex.library.sections()]
             filtered_sections = list(set(available_sections) & set(valid_sections))
 
-            if user and user.get_token(self.plex.machineIdentifier) in skip_watchlist:
-                logging.info(f"Skipping {current_username}'s watchlist media...")
-                return []
+            # Skip users in the skip list
+            if user:
+                try:
+                    token = user.get_token(self.plex.machineIdentifier)
+                except Exception:
+                    logging.warning(f"Could not get token for {current_username}; skipping.")
+                    return
+                if token in skip_watchlist or current_username in skip_watchlist:
+                    logging.info(f"Skipping {current_username} due to skip_watchlist")
+                    return
 
-            logging.info(f"Fetching {current_username}'s watchlist media...")
+            # --- Obtain Plex account instance ---
             try:
-                watchlist = get_watchlist(self.plex_token, user)
-                results = []
+                if user is None:
+                    # Use already authenticated main account
+                    account = self.plex.myPlexAccount()
+                else:
+                    # Try to switch to home user
+                    try:
+                        account = self.plex.myPlexAccount().switchHomeUser(user.title)
+                    except Exception:
+                        logging.warning(f"Could not switch to user {user.title}; skipping.")
+                        return
+            except Exception as e:
+                logging.error(f"Failed to get Plex account for {current_username}: {e}")
+                return
 
+            # --- RSS feed processing ---
+            if rss_url:
+                rss_items = fetch_rss_titles(rss_url)
+                logging.info(f"RSS feed contains {len(rss_items)} items")
+                for title, category in rss_items:
+                    cleaned_title = self.clean_rss_title(title)
+                    file = self.search_plex(cleaned_title)
+                    if file:
+                        logging.info(f"RSS title '{title}' matched Plex item '{file.title}' ({file.TYPE})")
+                        if not filtered_sections or file.librarySectionID in filtered_sections:
+                            try:
+                                if category == 'show' or file.TYPE == 'show':
+                                    yield from process_show(file, watchlist_episodes)
+                                elif file.TYPE == 'movie':
+                                    yield from process_movie(file)
+                                else:
+                                    logging.debug(f"Ignoring item '{file.title}' of type '{file.TYPE}'")
+                            except Exception as e:
+                                logging.warning(f"Error processing '{file.title}': {e}")
+                    else:
+                        logging.warning(f"RSS title '{title}' (cleaned: '{cleaned_title}') not found in Plex — discarded")
+                return
+
+            # --- Local Plex watchlist processing ---
+            try:
+                watchlist = account.watchlist(filter='released')
+                logging.info(f"{current_username}: Found {len(watchlist)} watchlist items from Plex")
                 for item in watchlist:
                     file = self.search_plex(item.title)
-                    if file:
-                        if not filtered_sections or (file.librarySectionID in filtered_sections):
+                    if file and (not filtered_sections or file.librarySectionID in filtered_sections):
+                        try:
                             if file.TYPE == 'show':
-                                results.extend(process_show(file, watchlist_episodes))
+                                yield from process_show(file, watchlist_episodes)
+                            elif file.TYPE == 'movie':
+                                yield from process_movie(file)
                             else:
-                                results.extend(process_movie(file))
-                        
-                return results
+                                logging.debug(f"Ignoring item '{file.title}' of type '{file.TYPE}'")
+                        except Exception as e:
+                            logging.warning(f"Error processing '{file.title}': {e}")
             except Exception as e:
-                logging.error(f"Error fetching watchlist for {current_username}: {str(e)}")
-                return []
+                logging.error(f"Error fetching watchlist for {current_username}: {e}")
 
-        users_to_fetch = [None]  # Start with main user (None)
+
+        # --- Prepare users to fetch ---
+        users_to_fetch = [None]  # always include the main local account
+
         if users_toggle:
-            users_to_fetch += self.plex.myPlexAccount().users()
-            
-        logging.debug(f"Processing {len(users_to_fetch)} users for watchlist")
+            for user in self.plex.myPlexAccount().users():
+                title = getattr(user, "title", None)
+                username = getattr(user, "username", None)  # None for local/home users
 
+                if username is not None:
+                    logging.info(f"Skipping remote user {title} (remote accounts are processed via RSS, not API)")
+                    continue
+
+                try:
+                    user_token = user.get_token(self.plex.machineIdentifier)
+                except Exception as e:
+                    logging.warning(f"Could not get token for {title}; skipping. Error: {e}")
+                    continue
+
+                if (user_token and user_token in skip_watchlist) or (title and title in skip_watchlist):
+                    logging.info(f"Skipping {title} (in skip_watchlist)")
+                    continue
+
+                users_to_fetch.append(user)
+
+        logging.info(f"Processing {len(users_to_fetch)} users for local Plex watchlist")
+
+        # --- Fetch concurrently ---
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = {executor.submit(fetch_user_watchlist, user) for user in users_to_fetch}
             for future in as_completed(futures):
@@ -236,98 +333,57 @@ class PlexManager:
                         yield from future.result()
                         break
                     except Exception as e:
-                        if "429" in str(e):  # rate limit error
+                        if "429" in str(e):
                             logging.warning(f"Rate limit exceeded. Retrying in {self.delay} seconds...")
                             time.sleep(self.delay)
                             retries += 1
                         else:
                             logging.error(f"Error fetching watchlist media: {str(e)}")
                             break
-    
+
+
+
     def get_watched_media(self, valid_sections: List[int], last_updated: Optional[float], 
-                         users_toggle: bool) -> Generator[str, None, None]:
-        """Get watched media files."""
-        def fetch_user_watched_media(plex_instance: PlexServer, username: str, retries: int = 0) -> Generator[str, None, None]:
-   
-             # Delay 1 seconds per user to reduce rate limiting
-            time.sleep(1)
-
-            try:
-                logging.info(f"Fetching {username}'s watched media...")
-                # Get all sections available for the user
-                all_sections = [section.key for section in plex_instance.library.sections()]
-                # Check if valid_sections is specified. If not, consider all available sections as valid.
-                if valid_sections:
-                    available_sections = list(set(all_sections) & set(valid_sections))
-                else:
-                    available_sections = all_sections
-                
-                # Filter sections the user has access to
-                user_accessible_sections = [section for section in available_sections if section in all_sections]
-                
-                for section_key in user_accessible_sections:
-                    section = plex_instance.library.sectionByID(section_key)
-                    # Search for videos in the section
-                    for video in section.search(unwatched=False):
-                        # Skip if the video was last viewed before the last_updated timestamp
-                        if video.lastViewedAt and last_updated and video.lastViewedAt < datetime.fromtimestamp(last_updated):
-                            continue
-                        # Process the video and yield the file path
-                        yield from process_video(video)
-
-            except (BadRequest, NotFound) as e:
-                # Skip remote users with 401 Unauthorized
-                if "401" in str(e) or "Unauthorized" in str(e):
-                    logging.warning(f"Skipping watched media for remote user {username} (access denied)")
-                    return
-                elif "429" in str(e) and retries < self.retry_limit:
-                    logging.warning(f"Rate limit exceeded. Retrying {retries + 1}/{self.retry_limit}. Sleeping for {self.delay} seconds...")
-                    time.sleep(self.delay)
-                    return fetch_user_watched_media(plex_instance, username, retries + 1)
-                elif isinstance(e, NotFound):
-                    logging.warning(f"Failed to switch to user {username}. Skipping...")
-                    return
-                else:
-                    raise e
+                        users_toggle: bool) -> Generator[str, None, None]:
+        """Get watched media files (local users only)."""
 
         def process_video(video) -> Generator[str, None, None]:
-            """Process a video and yield file paths."""
             if video.TYPE == 'show':
-                # Iterate through each episode of a show video
                 for episode in video.episodes():
                     yield from process_episode(episode)
             else:
-                # Get the file path of the video
-                file_path = video.media[0].parts[0].file
-                yield file_path
+                if len(video.media) > 0 and len(video.media[0].parts) > 0:
+                    yield video.media[0].parts[0].file
 
         def process_episode(episode) -> Generator[str, None, None]:
-            """Process an episode and yield file paths."""
-            # Iterate through each media and part of an episode
             for media in episode.media:
                 for part in media.parts:
                     if episode.isPlayed:
-                        # Get the file path of the played episode
-                        file_path = part.file
-                        yield file_path
+                        yield part.file
 
-        # Create a ThreadPoolExecutor
+        def fetch_user_watched_media(plex_instance: PlexServer, username: str) -> Generator[str, None, None]:
+            time.sleep(1)
+            try:
+                logging.info(f"Fetching {username}'s watched media...")
+                all_sections = [section.key for section in plex_instance.library.sections()]
+                available_sections = list(set(all_sections) & set(valid_sections)) if valid_sections else all_sections
+
+                for section_key in available_sections:
+                    section = plex_instance.library.sectionByID(section_key)
+                    for video in section.search(unwatched=False):
+                        if last_updated and video.lastViewedAt and video.lastViewedAt < datetime.fromtimestamp(last_updated):
+                            continue
+                        yield from process_video(video)
+            except Exception as e:
+                logging.error(f"Error fetching watched media for {username}: {e}")
+
+        # --- Only fetch for main local user ---
         with ThreadPoolExecutor() as executor:
             main_username = self.plex.myPlexAccount().title
-            
-            # Start a new task for the main user
             futures = [executor.submit(fetch_user_watched_media, self.plex, main_username)]
-            
-            if users_toggle:
-                for user in self.plex.myPlexAccount().users():
-                    username = user.title
-                    user_token = user.get_token(self.plex.machineIdentifier)
-                    user_plex = PlexServer(self.plex_url, user_token)
 
-                    # Start a new task for each other user
-                    futures.append(executor.submit(fetch_user_watched_media, user_plex, username))
-            
-            # As each task completes, yield the results
+            logging.info(f"Processing watched media for local user: {main_username} only")
+
             for future in as_completed(futures):
                 try:
                     yield from future.result()
@@ -335,12 +391,12 @@ class PlexManager:
                     logging.error(f"An error occurred in get_watched_media: {e}")
 
 
+
 class CacheManager:
     """Manages cache operations for media files."""
     
     @staticmethod
     def load_media_from_cache(cache_file: Path) -> Tuple[Set[str], Optional[float]]:
-        """Load watched media from cache."""
         if cache_file.exists():
             with cache_file.open('r') as f:
                 try:
@@ -348,10 +404,8 @@ class CacheManager:
                     if isinstance(data, dict):
                         return set(data.get('media', [])), data.get('timestamp')
                     elif isinstance(data, list):
-                        # cache file contains just a list of media, without timestamp
                         return set(data), None
                 except json.JSONDecodeError:
-                    # Clear the file and return an empty set
                     with cache_file.open('w') as f:
                         f.write(json.dumps({'media': [], 'timestamp': None}))
                     return set(), None
@@ -359,9 +413,7 @@ class CacheManager:
     
     @staticmethod
     def save_media_to_cache(cache_file: Path, media_list: List[str], timestamp: Optional[float] = None) -> None:
-        """Save media list to cache file."""
         if timestamp is None:
             timestamp = datetime.now().timestamp()
-        
         with cache_file.open('w') as f:
-            json.dump({'media': media_list, 'timestamp': timestamp}, f) 
+            json.dump({'media': media_list, 'timestamp': timestamp}, f)
