@@ -52,14 +52,14 @@ class PlexCacheApp:
         try:
             logging.info("Starting PlexCache application...")
             
-            # Load configuration
-            logging.info("Phase 1: Loading configuration")
-            self.config_manager.load_config()
-            
             # Setup logging
-            logging.info("Phase 2: Setting up logging")
             self._setup_logging()
-            
+            logging.info("Phase 1: Setting up logging")
+
+            # Load configuration
+            logging.info("Phase 2: Loading configuration")
+            self.config_manager.load_config()
+                  
             # Initialize components that depend on config
             logging.info("Phase 3: Initializing components")
             self._initialize_components()
