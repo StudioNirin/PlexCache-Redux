@@ -9,9 +9,9 @@ An updated version of the "PlexCache-Refactored" script with various bugfixes an
 PlexCache efficiently transfers media from the On Deck/Watchlist to the cache and moves watched media back to their respective locations. This Python script reduces energy consumption by minimizing the need to spin up the array/hard drive(s) when watching recurrent media like TV series. It achieves this by moving the media from the OnDeck and watchlist for the main user and/or other users. For TV shows/anime, it also fetches the next specified number of episodes.
 
 ## Features
-#### I have added tags to these features to distinguish ones which work for different types of users:
-* Local means users on the local or Home account.
-* Remote means users that are remote, so friends that you have shared libraries with.
+#### I have added tags to these features to distinguish ones which work for different types of users:  
+**Local**: Users on the local or Home account.  
+**Remote**: Users that are remote, so friends that you have shared libraries with.  
 The original PlexCache app only worked for local users for most features, due to API limitations.
 
 - Fetch a specified number of episodes from the "onDeck" for the main user and other users (Local/Remote).
@@ -30,8 +30,7 @@ The original PlexCache app only worked for local users for most features, due to
 - Exit the script if any active session or skip the currently playing media.
 - Send Webhook messages according to set log level (untested).
 
-[^1]: Remote users do not have individual watchlists accessible by the API. It's unfortunately not a thing. So instead I am using the available RSS feed as a workaround. The downside of this is... 
-[^2]: ...that it is an all-or-nothing proposal for remote users. Local users can still be toggled on a per-user basis.
+
 
   
 ### Core Modules
@@ -125,6 +124,9 @@ This script comes without any warranties, guarantees, or magic powers. By using 
 
 It seems we all owe a debt of thanks to someone called brimur[^3] for providing the script that served as the foundation and inspiration for this project. That was long before my time on it though, the first iteration I saw was by bexem[^4], who also has my thanks. But the biggest contributor to this continuation of the project was by bbergle[^5], who put in all the work on refactoring and cleaning up all the code into bite-sized chunks that were understandable to a novice like myself. All I did then was go through it all and try and make the wierd janky Plex API actually kinda work, for what I needed it to do anyway!
 
+
+[^1]: Remote users do not have individual watchlists accessible by the API. It's unfortunately not a thing. So instead I am using the available RSS feed as a workaround. The downside of this is... 
+[^2]: ...that it is an all-or-nothing proposal for remote users. Local users can still be toggled on a per-user basis.
 [^3]: [brimur/preCachePlexOnDeckEpiosodes.py](https://gist.github.com/brimur/95277e75ca399d5d52b61e6aa192d1cd)
 [^4]: https://github.com/bexem/PlexCache
 [^5]: https://github.com/BBergle/PlexCache
