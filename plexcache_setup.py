@@ -125,7 +125,7 @@ def setup():
 
     # ---------------- OnDeck Settings ----------------
     while 'number_episodes' not in settings_data:
-        prompt_user_for_number('\nHow many episodes (digit) do you want fetch (onDeck)? (default: 5) ', '5', 'number_episodes')
+        prompt_user_for_number('\nHow many episodes (digit) do you want fetch from your OnDeck? (default: 5) ', '5', 'number_episodes')
 
     while 'days_to_monitor' not in settings_data:
         prompt_user_for_number('\nMaximum age of the media onDeck to be fetched? (default: 99) ', '99', 'days_to_monitor')
