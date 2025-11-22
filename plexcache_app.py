@@ -529,8 +529,8 @@ class PlexCacheApp:
         self.logging_manager.log_summary()
 
         logging.info(f"Execution time of the script: {execution_time}")
-        logging.info("Thank you for using bexem's script: https://github.com/bexem/PlexCache")
-        logging.info("Also special thanks to: - /u/teshiburu2020 - /u/planesrfun - /u/trevski13 - /u/extrobe - /u/dsaunier-sunlight")
+        logging.info("Thank you for using PlexCache-R: https://github.com/StudioNirin/PlexCache-R")
+        logging.info("Special thanks to: - Bexem - BBergle - and everyone who contributed!")
         logging.info("*** The End ***")
         
         # Clean up empty folders in cache
