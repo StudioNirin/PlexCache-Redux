@@ -7,6 +7,9 @@ from plexapi.exceptions import BadRequest
 script_folder = "."
 settings_filename = os.path.join(script_folder, "plexcache_settings.json")
 
+# ensure a settings container exists early so helper functions can reference it
+settings_data = {}
+
 # ---------------- Helper Functions ----------------
 
 def check_directory_exists(folder):
@@ -44,6 +47,30 @@ def is_valid_plex_url(url):
         return all([result.scheme, result.netloc])
     except ValueError:
         return False
+
+# Helper to compute a common root for a list of paths
+def find_common_root(paths):
+    """Return the deepest common directory for all given paths."""
+    if not paths:
+        return "/"
+
+    # Normalize trailing slashes and split
+    normed = [p.rstrip('/') for p in paths]
+    split_paths = [p.split('/') for p in normed]
+
+    common_parts = []
+    for parts in zip(*split_paths):
+        if all(part == parts[0] for part in parts):
+            common_parts.append(parts[0])
+        else:
+            break
+
+    # Handle leading empty string (absolute paths)
+    if common_parts and common_parts[0] == '':
+        if len(common_parts) == 1:
+            return '/'
+        return "/" + "/".join(common_parts[1:])
+    return "/" + "/".join(common_parts) if common_parts else "/"
 
 # ---------------- Setup Function ----------------
 
@@ -90,23 +117,32 @@ def setup():
                     elif include.lower() in ['y', 'yes']:
                         valid_sections.append(library.key)
 
+                        # Compute plex_source only once
                         if 'plex_source' not in settings_data:
-                            location_index = 0
-                            location = library.locations[location_index]
-                            if operating_system.lower() == 'linux':
-                                root_folder = os.path.dirname(location)
-                            else:
-                                location = convert_path_to_nt(location)
-                                root_folder = ntpath.splitdrive(location)[0]
-                            print(f"\nPlex source path autoselected and set to: {root_folder}")
-                            settings_data['plex_source'] = root_folder
+                            # Collect the root folder for every library in Plex
+                            all_locations = []
+                            for lib in plex.library.sections():
+                                try:
+                                    locs = lib.locations
+                                    if isinstance(locs, list):
+                                        all_locations.extend(locs)
+                                    elif isinstance(locs, str):
+                                        all_locations.append(locs)
+                                except Exception:
+                                    continue
 
+                            # Compute the true common directory (e.g. /media)
+                            plex_source = find_common_root(all_locations)
+                            print(f"\nPlex source path autoselected and set to: {plex_source}")
+                            settings_data['plex_source'] = plex_source
+
+                        # Append relative paths for this library (deduplicated)
                         for location in library.locations:
-                            if operating_system.lower() == 'linux':
-                                plex_library_folder = ("/" + os.path.basename(location)).strip('/')
-                            else:
-                                plex_library_folder = os.path.basename(location).split('\\')[-1]
-                            plex_library_folders.append(plex_library_folder)
+                            rel = os.path.relpath(location, settings_data['plex_source']).strip('/')
+                            rel = rel.replace('\\', '/')
+                            if rel not in plex_library_folders:
+                                plex_library_folders.append(rel)
+
                         settings_data['plex_library_folders'] = plex_library_folders
                     else:
                         print("Invalid choice. Please enter either yes or no")
@@ -115,6 +151,7 @@ def setup():
                     print("You must select at least one library to include. Please try again.")
 
             settings_data['valid_sections'] = valid_sections
+
 
         except (BadRequest, requests.exceptions.RequestException):
             print('Unable to connect to Plex server. Please check your token.')
