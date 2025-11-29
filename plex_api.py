@@ -178,6 +178,7 @@ class PlexManager:
         for episode in episodes:
             # Skip episodes with missing index data
             if episode.parentIndex is None or episode.index is None:
+                logging.debug(f"Skipping episode '{episode.title}' from '{episode.grandparentTitle}' - missing index data (parentIndex={episode.parentIndex}, index={episode.index})")
                 continue
             if (episode.parentIndex > current_season or
                 (episode.parentIndex == current_season and episode.index > current_episode_index)) and len(next_episodes) < number_episodes:
