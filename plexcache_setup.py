@@ -438,7 +438,7 @@ else:
     while True:
         creation = input("\nIf the path is correct, do you want to create the file? [Y/n] ") or 'yes'
         if creation.lower() in ['y', 'yes']:
-            print("Settings file created successfully!\n")
+            print("Starting setup...\n")
             settings_data = {}
             setup()
             break
