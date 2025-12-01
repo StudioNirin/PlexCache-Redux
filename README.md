@@ -8,9 +8,12 @@
 3. Figure out a way to have the exclude file also have files that were already on cache and not moved from array. As at present only files that are moved by the script, get added to the exclude file. This part is easy, but the issue comes in with the current option of "watched files get moved back to array" as you might want those files to stay on cache (if they're recent downloads) so other users can watch them. Tbh it might be better to remove that option, and just have the files removed from the exclude list and remain on cache, and have the users use Mover Tuner to have a lot more customisation for their options for when space gets cleared and files moved. I'm not sure having this script doing the moving back to the array really adds anything. Though I guess it's more for people using this on non-unraid environments and still want some kind of exclude file.  
    Two options:
    1. Have the exclude file be correct, including 'already cached files', and recommend that unraid users have the move-back-after-watched turned off and let Mover handle it.
-   2. Have the exclude file be correct, but mark 'already cached files' differently in the file, so instead of being moved back after watched those specific files remain in cache until mover moves them.  
+   2. Have the exclude file be correct, but mark 'already cached files' differently in the file, so instead of being moved back after watched those specific files remain in cache until mover moves them.
+   I think 1 is the easiest and tbh probably the solution best for most people. 
+   
+4.Figure out if its possible/worthwhile to copy files from array to cache, instead of moving them. Leave behind the original file (marked filename.archive or similar). When watched, the cache would only have to delete the cached file and rename the array file, instead of needing to do a longer and more wearing second move. Will need some logic for what to do with files that were already on the cache (as in todo item 3 above) as they won't have .archive files and people may want them to remain on cache longer and be moved by the Mover due to them likely being new media etc.  
+Alternatively we could make use of .plexignore files, but I'm not sure how they would interact with series episodes. Easier with movies. 
 
-I think 1 is the easiest and tbh probably the solution best for most people. 
 
 ## Overview
 Automate Plex media management: Efficiently transfer media from the On Deck/Watchlist to the cache, and seamlessly move watched media back to their respective locations.
