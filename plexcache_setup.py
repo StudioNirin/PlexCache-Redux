@@ -113,11 +113,12 @@ def auto_detect_plex_token():
         return None, None
 
     # Step 2: Search for Plex Preferences.xml within those folders
+    # Use */Plex Media Server/Preferences.xml to match both native installs and Docker variants
     preferences_path = None
     for folder in app_folders:
         try:
             result = subprocess.run(
-                ['find', folder, '-maxdepth', '5', '-path', '*/Library/Application Support/Plex Media Server/Preferences.xml'],
+                ['find', folder, '-maxdepth', '8', '-path', '*/Plex Media Server/Preferences.xml'],
                 capture_output=True, text=True, timeout=30
             )
             if result.stdout.strip():
@@ -126,12 +127,12 @@ def auto_detect_plex_token():
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):
             continue
 
-    # Step 3: Fallback to broader search if not found
+    # Step 3: Fallback to broader search if not found in appdata/apps folders
     if not preferences_path:
-        print("Not found in common locations, searching /mnt (this may take a moment)...")
+        print("Not found in appdata/apps folders, searching /mnt (this may take a moment)...")
         try:
             result = subprocess.run(
-                ['find', '/mnt', '-maxdepth', '8', '-path', '*/Library/Application Support/Plex Media Server/Preferences.xml'],
+                ['find', '/mnt', '-maxdepth', '10', '-path', '*/Plex Media Server/Preferences.xml'],
                 capture_output=True, text=True, timeout=60
             )
             if result.stdout.strip():
