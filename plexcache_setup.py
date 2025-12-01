@@ -287,6 +287,9 @@ def setup():
                         else:
                             print("Path must start with '/'")
 
+                # Ensure trailing slash for consistency
+                if not plex_source.endswith('/'):
+                    plex_source = plex_source + '/'
                 print(f"\nPlex source path set to: {plex_source}")
                 settings_data['plex_source'] = plex_source
 
@@ -464,6 +467,9 @@ def setup():
                 break
             else:
                 print("Invalid choice. Please enter either yes or no")
+        # Ensure trailing slash for consistency
+        if not cache_dir.endswith('/'):
+            cache_dir = cache_dir + '/'
         settings_data['cache_dir'] = cache_dir
 
     if 'real_source' not in settings_data:
@@ -487,6 +493,9 @@ def setup():
                 break
             else:
                 print("Invalid choice. Please enter either yes or no")
+        # Ensure trailing slash for consistency
+        if not real_source.endswith('/'):
+            real_source = real_source + '/'
         settings_data['real_source'] = real_source
 
         num_folders = len(settings_data['plex_library_folders'])
