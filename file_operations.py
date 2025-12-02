@@ -212,35 +212,36 @@ class FileFilter:
             
             logging.info(f"Found {len(cache_files)} files in exclude list")
             
-            # Get shows that are still needed (in OnDeck or watchlist)
-            needed_shows = set()
+            # Get media names that are still needed (in OnDeck or watchlist)
+            needed_media = set()
             for item in current_ondeck_items | current_watchlist_items:
-                # Extract show name from path (e.g., "House Hunters (1999)" from "/path/to/House Hunters (1999) {imdb-tt0369117}/Season 263/...")
-                show_name = self._extract_show_name(item)
-                if show_name is not None:
-                    needed_shows.add(show_name)
-            
+                # Extract show/movie name from path
+                media_name = self._extract_media_name(item)
+                if media_name is not None:
+                    needed_media.add(media_name)
+
             # Check each file in cache
             for cache_file in cache_files:
                 if not os.path.exists(cache_file):
                     logging.debug(f"Cache file no longer exists: {cache_file}")
                     cache_paths_to_remove.append(cache_file)
                     continue
-                
-                # Extract show name from cache file
-                show_name = self._extract_show_name(cache_file)
-                if show_name is None:
+
+                # Extract show/movie name from cache file
+                media_name = self._extract_media_name(cache_file)
+                if media_name is None:
+                    logging.warning(f"Could not extract media name from path: {cache_file}")
                     continue
-                
-                # If show is still needed, keep this file in cache
-                if show_name in needed_shows:
-                    logging.debug(f"Show still needed, keeping in cache: {show_name}")
+
+                # If media is still needed, keep this file in cache
+                if media_name in needed_media:
+                    logging.debug(f"Media still needed, keeping in cache: {media_name}")
                     continue
-                
-                # Show is no longer needed, move this file back to array
+
+                # Media is no longer needed, move this file back to array
                 array_file = cache_file.replace(self.cache_dir, self.real_source, 1)
-                
-                logging.info(f"Show no longer needed, will move back to array: {show_name} - {cache_file}")
+
+                logging.info(f"Media no longer needed, will move back to array: {media_name} - {cache_file}")
                 files_to_move_back.append(array_file)
                 cache_paths_to_remove.append(cache_file)
             
@@ -251,14 +252,18 @@ class FileFilter:
 
         return files_to_move_back, cache_paths_to_remove
 
-    def _extract_show_name(self, file_path: str) -> Optional[str]:
-        """Extract show name from file path. Returns None if not found."""
+    def _extract_media_name(self, file_path: str) -> Optional[str]:
+        """Extract show or movie name from file path.
+
+        For TV shows: Returns the folder before 'Season X', 'Series X', or 'Specials'
+        For movies: Returns the parent folder of the file (e.g., 'Argo (2012)')
+        """
         try:
             normalized_path = os.path.normpath(file_path)
             path_parts = normalized_path.split(os.sep)
 
+            # For TV shows: find Season/Series/Specials folder and return parent
             for i, part in enumerate(path_parts):
-                # Match - Season/Series (+ number) and Specials as possible folder names for TV Shows. 
                 if (
                     re.match(r'^(Season|Series)\s*\d+$', part, re.IGNORECASE)
                     or re.match(r'^\d+$', part)
@@ -267,6 +272,11 @@ class FileFilter:
                     if i > 0:
                         return path_parts[i - 1]
                     break
+
+            # For movies: return the parent folder of the file
+            # e.g., /mnt/cache/Movies/Argo (2012)/Argo.mkv -> "Argo (2012)"
+            if len(path_parts) >= 2:
+                return path_parts[-2]
 
             return None
         except Exception:
